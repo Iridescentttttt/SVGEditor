@@ -3,7 +3,7 @@ import type { SvgTextCodec } from "../domain/SvgTextCodec.js";
 import type { TextFiles } from "../session/TextFiles.js";
 import type { Workspace } from "../session/Workspace.js";
 import type { Command } from "./Command.js";
-import type { HistoryPolicy } from "./Command.js";
+import { HistoryPolicy } from "./HistoryPolicy.js";
 
 export class SaveCommand implements Command {
   static readonly usage = "save [file.svg]";
@@ -26,7 +26,7 @@ export class SaveCommand implements Command {
   ) {}
 
   historyPolicy(): HistoryPolicy {
-    return "lock";
+    return HistoryPolicy.lock;
   }
 
   execute(): readonly string[] {

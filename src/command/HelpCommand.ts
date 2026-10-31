@@ -1,6 +1,6 @@
 import { EditorError } from "../domain/EditorError.js";
 import type { Command } from "./Command.js";
-import type { HistoryPolicy } from "./Command.js";
+import { HistoryPolicy } from "./HistoryPolicy.js";
 
 export class HelpCommand implements Command {
   static readonly usage = "help";
@@ -13,7 +13,7 @@ export class HelpCommand implements Command {
   private constructor(private readonly usages: readonly string[]) {}
 
   historyPolicy(): HistoryPolicy {
-    return "none";
+    return HistoryPolicy.none;
   }
 
   execute(): readonly string[] {

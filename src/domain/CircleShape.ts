@@ -1,14 +1,8 @@
 import { Attr } from "./Attr.js";
 import { DecimalText } from "./DecimalText.js";
-import { EditorError } from "./EditorError.js";
-import { PaintStyle } from "./PaintStyle.js";
-import type { Restorable } from "./Restorable.js";
-import { Shape } from "./Shape.js";
-import { SnapshotRestore } from "./SnapshotRestore.js";
+import { PaintedShape } from "./PaintedShape.js";
 
-export class CircleShape extends Shape {
-  private readonly paint = new PaintStyle();
-
+export class CircleShape extends PaintedShape {
   constructor(
     id: string,
     private cx: number,
@@ -22,6 +16,33 @@ export class CircleShape extends Shape {
     return "circle";
   }
 
+  protected geometryNames(): readonly string[] {
+    return ["cx", "cy", "r"];
+  }
+
+  protected readNumber(name: string): number {
+    if (name === "cx") return this.cx;
+    if (name === "cy") return this.cy;
+    return this.radius;
+  }
+
+  protected writeNumber(name: string, value: number): void {
+    if (name === "cx") this.cx = value;
+    else if (name === "cy") this.cy = value;
+    else this.radius = value;
+  }
+
+  protected captureNumbers(): () => void {
+    const cx = this.cx;
+    const cy = this.cy;
+    const radius = this.radius;
+    return () => {
+      this.cx = cx;
+      this.cy = cy;
+      this.radius = radius;
+    };
+  }
+
   override move(dx: number, dy: number): void {
     this.cx += dx;
     this.cy += dy;
@@ -33,67 +54,14 @@ export class CircleShape extends Shape {
     this.radius *= factor;
   }
 
-  override validateAttribute(name: string, value: string): void {
-    if (name === "cx" || name === "cy" || name === "r") {
-      DecimalText.parse(value);
-      return;
-    }
-    if (this.paint.handles(name)) {
-      this.paint.validate(name, value);
-      return;
-    }
-    throw new EditorError(`error: unknown attribute: ${name}`);
-  }
-
-  override setAttribute(name: string, value: string): void {
-    if (name === "cx") {
-      this.cx = DecimalText.parse(value);
-      return;
-    }
-    if (name === "cy") {
-      this.cy = DecimalText.parse(value);
-      return;
-    }
-    if (name === "r") {
-      this.radius = DecimalText.parse(value);
-      return;
-    }
-    if (this.paint.handles(name)) {
-      this.paint.set(name, value);
-      return;
-    }
-    throw new EditorError(`error: unknown attribute: ${name}`);
-  }
-
-  override formatAssignment(name: string): string {
-    if (name === "cx") return `cx=${DecimalText.format(this.cx)}`;
-    if (name === "cy") return `cy=${DecimalText.format(this.cy)}`;
-    if (name === "r") return `r=${DecimalText.format(this.radius)}`;
-    if (this.paint.handles(name)) return `${name}=${this.paint.get(name) ?? ""}`;
-    throw new EditorError(`error: unknown attribute: ${name}`);
-  }
-
-  override checkpoint(): Restorable {
-    const cx = this.cx;
-    const cy = this.cy;
-    const radius = this.radius;
-    const restorePaint = this.paint.capture();
-    return new SnapshotRestore(() => {
-      this.cx = cx;
-      this.cy = cy;
-      this.radius = radius;
-      restorePaint();
-    }, []);
-  }
-
   override treeSummary(): string {
-    return `cx=${DecimalText.format(this.cx)} cy=${DecimalText.format(this.cy)} r=${DecimalText.format(this.radius)}${this.paint.summarySuffix()}`;
+    return `cx=${DecimalText.format(this.cx)} cy=${DecimalText.format(this.cy)} r=${DecimalText.format(this.radius)}${this.paintSuffix()}`;
   }
 
   override showBody(): readonly string[] {
     return [
       `  cx=${DecimalText.format(this.cx)} cy=${DecimalText.format(this.cy)} r=${DecimalText.format(this.radius)}`,
-      ...this.paint.showLines(),
+      ...this.paintLines(),
     ];
   }
 
@@ -103,10 +71,6 @@ export class CircleShape extends Shape {
       new Attr("cy", DecimalText.format(this.cy)),
       new Attr("r", DecimalText.format(this.radius)),
     ];
-  }
-
-  override paintAttributes(): readonly Attr[] {
-    return this.paint.attributes();
   }
 
   override movedText(_dx: number, _dy: number): string {

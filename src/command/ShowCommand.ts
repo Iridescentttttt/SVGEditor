@@ -1,7 +1,7 @@
 import { EditorError } from "../domain/EditorError.js";
 import type { Workspace } from "../session/Workspace.js";
 import type { Command } from "./Command.js";
-import type { HistoryPolicy } from "./Command.js";
+import { HistoryPolicy } from "./HistoryPolicy.js";
 
 export class ShowCommand implements Command {
   static readonly usage = "show <id>";
@@ -17,7 +17,7 @@ export class ShowCommand implements Command {
   ) {}
 
   historyPolicy(): HistoryPolicy {
-    return "none";
+    return HistoryPolicy.none;
   }
 
   execute(): readonly string[] {

@@ -2,7 +2,7 @@ import { DecimalText } from "../domain/DecimalText.js";
 import { EditorError } from "../domain/EditorError.js";
 import type { Workspace } from "../session/Workspace.js";
 import type { Command } from "./Command.js";
-import type { HistoryPolicy } from "./Command.js";
+import { HistoryPolicy } from "./HistoryPolicy.js";
 
 export class CanvasCommand implements Command {
   static readonly usage = "canvas [w] [h]";
@@ -25,7 +25,7 @@ export class CanvasCommand implements Command {
   ) {}
 
   historyPolicy(): HistoryPolicy {
-    return this.width === null ? "none" : "lock";
+    return this.width === null ? HistoryPolicy.none : HistoryPolicy.lock;
   }
 
   execute(): readonly string[] {

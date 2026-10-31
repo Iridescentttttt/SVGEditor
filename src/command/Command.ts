@@ -1,4 +1,4 @@
-export type HistoryPolicy = "edit" | "reset" | "lock" | "none";
+import type { HistoryPolicy } from "./HistoryPolicy.js";
 
 export interface Command {
   execute(): readonly string[];

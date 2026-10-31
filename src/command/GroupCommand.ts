@@ -1,7 +1,7 @@
 import type { EditResult } from "../domain/EditResult.js";
 import { EditorError } from "../domain/EditorError.js";
 import type { Workspace } from "../session/Workspace.js";
-import type { HistoryPolicy } from "./Command.js";
+import { HistoryPolicy } from "./HistoryPolicy.js";
 import type { UndoableCommand } from "./UndoableCommand.js";
 
 export class GroupCommand implements UndoableCommand {
@@ -21,7 +21,7 @@ export class GroupCommand implements UndoableCommand {
   ) {}
 
   historyPolicy(): HistoryPolicy {
-    return "edit";
+    return HistoryPolicy.edit;
   }
 
   execute(): readonly string[] {

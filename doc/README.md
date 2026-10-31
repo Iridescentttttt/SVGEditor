@@ -1,630 +1,299 @@
-# Lab1 Phase 1：SVG 编辑器（CLI）架构方案
+# SVGEditor
 
-> 状态：仅架构方案。过程记录、一致性自查、质量保证在实现完成后再写。
->
-> 本阶段实现 `init` / `read` / `save` / `canvas`、六种内置图形（`rect` `circle` `ellipse` `line` `text` `g`）以及编辑、显示、撤销重做。`box` 是后续插件阶段的目标，本阶段 `create box` 报未知类型；方案里只留插槽，不实现插件。
+命令行矢量图编辑器。用文本命令创建、修改、分组和保存 SVG，生成的文件可以直接用浏览器打开。
 
-## 总判断
+本阶段实现画布、六种图形（`rect` `circle` `ellipse` `line` `text` `g`）、结构显示，以及撤销和重做。`box` 是后续插件类型，本阶段输入 `create box` 会报未知类型，内核只留下注册插槽。
 
-系统按「文档—图形树—命令—会话」分解，而不是按「解析一行、改几个字段、打印」拆成过程。
+## 怎么运行
 
-| 决策 | 选择 |
-|---|---|
-| 谁持有业务规则 | `Document` 管树的结构不变量，`Shape` 管自身几何与属性。命令不写这些规则 |
-| 请求如何进入系统 | 命令对象。`CommandHistory` 统一执行，并维护 undo / redo |
-| 容器与叶子如何共用 `move` / `scale` / `delete` | 组合结构。`GroupShape` 与叶子都是 `Shape`，画布根不是图形 |
-| 外部 XML、磁盘如何进来 | 适配器。领域只看见 `RawElement` 和字符串 |
-| 新图形类型从哪里进入 | 唯一的 `ShapeRegistry`。本阶段登记六个内置类型 |
-| 撤销记什么 | 命令持有「这一次操作的逆操作」。只覆盖被碰到的子树，不给整份文档做快照 |
-| 图形上的多种只读操作 | 放在图形自己的方法上（摘要、明细、写出属性）。本阶段不引入访问者 |
-| 界面与文档的同步 | 命令返回文本，REPL 负责打印。本阶段只有一个同步调用者，不引入观察者 |
+需要 Node.js 22（自带 npm）。在本目录：
 
-规格允许按名字分派的只有两处，且必须标成待重构：
+```bash
+npm install
+npm test
+npm run cli
+```
 
-1. `app/CommandBindings.ts`：命令名 → 命令对象
-2. `app/ShapeBindings.ts`：类型名 / SVG 标签 → `ShapeProvider`
+`npm run cli` 进入 `svg>`。`#` 开头的整行是注释。退出按 `Ctrl+D`。
 
-领域、命令、读写过程里不再出现第二套 `switch(type)` 或 `instanceof` 分派。
+演示图已经生成在 `examples/library.svg`。重新生成命令和终端记录：
+
+```bash
+npm run demo
+```
+
+终端里亲手做一遍：进入 `svg>` 后，按 `examples/library.commands` 逐行输入。浏览器打开 `examples/library.svg` 看图。截图就拍这两处。
 
 ---
 
-## 1. 模块划分
+## 架构方案
 
-### 1.1 目录与职责
+### 1. 模块划分
 
 ```text
-src/
-  app/          装配根：进程入口、一行文本的用例、两处按名分派
-  cli/          交互：提示符、词法、标准输出。不知道图形和文件
-  command/      命令对象与历史栈（调用者）
-  session/      当前文档与当前路径
-  domain/       文档、图形组合树、SVG 语义、纯文本加载与序列化
-  io/           把 node:fs 和 XML 解析库适配成领域接口
+src/app/        装配根：进程入口、一行文本的用例、两处按名分派
+src/cli/        提示符、分词、输出
+src/command/    命令对象、历史策略、撤销栈
+src/session/    当前文档与保存路径，以及文件端口
+src/domain/     文档、图形树、迭代、序列化、从中性元素装载
+src/io/         node:fs 与 XML 库的适配器
+examples/       图书馆导览演示
 test/           与 src 同构的单元测试
-doc/            本说明
 ```
 
 | 模块 | 职责 | 不负责 |
 |---|---|---|
-| `app` | 创建工作区、历史栈、注册表和适配器；把一行 token 变成一次 `CommandHistory.execute` | 几何规则、XML 细节、提示符格式 |
-| `cli` | `svg>` 提示符、启动横幅、整行注释、引号分词、把结果写到输出 | 判断 undo 是否合法、修改文档 |
-| `command` | 每种用户命令一个类：解析自己的参数、调用接收者、按历史策略被记录 | 父子指针、id 索引、属性白名单 |
-| `session` | `Workspace`：当前 `Document` 与默认保存路径；`TextFiles` 端口 | 图形树内部结构 |
-| `domain` | 聚合根、组合树、创建/读取图形、树形文本、SVG 文本的结构 | 磁盘、XML 库、readline、命令名 |
+| `app` | 创建工作区、历史栈、注册表和适配器；把一行 token 变成一次执行 | 几何规则、XML、提示符 |
+| `cli` | `svg>`、整行注释、引号分词、把结果写到输出 | 判断能否撤销、修改文档 |
+| `command` | 每种用户命令一个类；成功后按策略入栈 | 父子指针、id 索引、属性白名单 |
+| `session` | 当前 `Document` 与默认保存路径；`TextFiles` 端口 | 图形树内部 |
+| `domain` | 聚合根、组合树、创建与读取、树形文本、SVG 文本 | 磁盘、XML 库、readline、命令名 |
 | `io` | `NodeTextFiles`、`XmlSvgCodec` | 业务规则、撤销 |
 
-一类一文件，文件名等于类名。字段私有。不设「工具函数文件」。`main` 的进程入口是 `app/Main.ts`。
-
-`package.json` 的 `npm run cli` 启动 `Main`。测试只依赖各模块的公开类型，并用内存文件和记录型输出替换端口。
-
-### 1.2 运行时谁创建谁
-
-`Main` 是客户端里唯一的装配点：
-
-1. 创建 `ShapeRegistry`，由 `ShapeBindings` 登记六个内置 `ShapeProvider`
-2. 创建 `XmlSvgCodec`、`NodeTextFiles`、空的 `Workspace`、`CommandHistory`
-3. 创建 `CommandBindings`，把命令名绑到各命令类的 `parse`
-4. 创建 `CliController`（实现 `cli` 里的 `SessionController`），交给 `Repl`
-
-一次按键回车的路径：
-
-```text
-Repl
-  → LineTokenizer          空行与整行 # 注释在此结束
-  → CliController
-       → CommandBindings   命令名分派（待重构点 1）
-       → CommandHistory    执行、入栈、锁定
-            → Command
-                 → Workspace / Document / Shape
-                 → TextFiles / SvgTextCodec   仅 init 以外的文档命令需要
-```
-
-`undo` 与 `redo` 不做成会把自己压栈的命令。它们是 `CommandHistory` 的两个方法，仍由 `CommandBindings` 这一处按名字转过去。
-
-### 1.3 包图
-
-箭头表示编译期可以 import 的方向。
+一类一文件，文件名等于类名。字段私有。按名字分派只有两处，文件头标了待重构：`app/CommandBindings.ts`（命令名）、`app/ShapeBindings.ts`（图形类型名）。
 
 ```plantuml
 @startuml
 skinparam componentStyle rectangle
 skinparam shadowing false
-left to right direction
 
 package "cli" {
   [Repl]
-  [LineTokenizer]
-  [SessionController\n接口]
-  [TextSink]
+  [SessionController]
 }
-
-package "app 装配根" {
+package "app" {
   [Main]
   [CliController]
-  [CommandBindings\n待重构：命令名]
-  [ShapeBindings\n待重构：图形名]
+  [CommandBindings]
+  [ShapeBindings]
 }
-
 package "command" {
-  [CommandHistory\nInvoker]
+  [CommandHistory]
+  [HistoryPolicy]
   [具体命令]
 }
-
 package "session" {
   [Workspace]
-  [TextFiles\n接口]
+  [TextFiles]
 }
-
 package "domain" {
   [Document]
-  [Shape 组合树]
+  [Shape / PaintedShape]
+  [ShapeIterator]
   [ShapeRegistry]
-  [SvgLoader]
-  [SvgSerializer]
-  [SvgTextCodec\n接口]
+  [SvgTextCodec]
 }
-
 package "io" {
   [NodeTextFiles]
   [XmlSvgCodec]
 }
 
-[Main] --> [CliController]
-[Main] --> [CommandBindings]
-[Main] --> [ShapeBindings]
-[Main] --> [Repl]
-[Main] --> [NodeTextFiles]
-[Main] --> [XmlSvgCodec]
-
 [CliController] ..|> [SessionController]
 [Repl] --> [SessionController]
-[Repl] --> [TextSink]
-[CliController] --> [LineTokenizer]
 [CliController] --> [CommandHistory]
-[CliController] --> [CommandBindings]
-
-[CommandBindings] --> [具体命令]
-[CommandHistory] --> [具体命令]
+[CommandHistory] --> [HistoryPolicy]
 [具体命令] --> [Workspace]
 [具体命令] --> [Document]
 [具体命令] --> [TextFiles]
 [具体命令] --> [SvgTextCodec]
-[ShapeBindings] --> [ShapeRegistry]
-
 [Workspace] --> [Document]
-[Document] --> [Shape 组合树]
-[SvgLoader] --> [ShapeRegistry]
-[SvgLoader] --> [Shape 组合树]
-[SvgSerializer] --> [Shape 组合树]
-[ShapeRegistry] --> [Shape 组合树]
-
+[Document] --> [Shape / PaintedShape]
+[Document] --> [ShapeIterator]
+[ShapeBindings] --> [ShapeRegistry]
 [NodeTextFiles] ..|> [TextFiles]
 [XmlSvgCodec] ..|> [SvgTextCodec]
 @enduml
 ```
 
-`Repl` 只依赖 `SessionController`。具体的 `CliController` 由 `Main` 注入。这样交互模块不会回头依赖命令或文档。
+`Repl` 只依赖 `SessionController`。具体控制器由 `Main` 注入。
 
----
+### 2. 设计模式的选择
 
-## 2. 设计模式如何落地
+模式只加在已经出现的变化上。下面每一条都对应代码里的类型，而不是事后贴上去的名字。
 
-### 2.1 命令（必须使用）
+#### 命令 Command（课程要求）
 
-采用的是「入口完全委托」那一档：业务在接收者，命令只转发，调用者决定何时执行以及是否入栈。
+请求封装成对象。`CommandHistory` 是调用者，`Document` 和 `Shape` 是接收者。具体命令只解析参数、调用接收者、记住返回的逆操作。业务规则不写在命令里。
 
-| 角色 | 落地 | 职责 |
+`redo` 会再次调用 `execute()`，不是把上次的文本再打印一遍。编辑命令入 undo 栈并清空 redo 栈；`init` / `read` 清空两栈并锁定；`save` 和修改画布尺寸只锁定、保留 undo 栈；`tree` / `show` / `help` 不碰栈。锁定期间撤销和重做都是 `error: undo not allowed after io command`。下一次成功的编辑才开锁。失败的命令不入栈、不改锁。
+
+用户不能 `ungroup` 顶层容器。撤销 `group` 走的是当时记下的逆操作，不受这条禁令限制，否则「把两个顶层图形收成一组」无法撤销。
+
+#### 组合 Composite
+
+`Shape` 是组件，`RectShape` 等是叶子，`GroupShape` 是组合。`move` / `scale` 在组上递归到每个子孙，每个叶子只处理一次。`SvgRoot` 是容器但不是图形：没有 id，不能被移动或删除。画布尺寸只走 `canvas` / `init` / `read`。
+
+`front` 把图形放到同级末尾，`back` 放到开头。SVG 里后出现的兄弟画在上层。
+
+#### 适配器 Adapter
+
+| | XML | 文件系统 |
 |---|---|---|
-| Client | `Main` + `CommandBindings` | 创建命令，把工作区和端口装进命令 |
-| Invoker | `CommandHistory` | `execute` / `undo` / `redo`，两栈，锁定标志 |
-| Command | `Command` | `execute()` 与 `historyPolicy()` |
-| UndoableCommand | 编辑命令 | 额外的 `undo()` |
-| ConcreteCommand | `MoveCommand` 等，一类一文件 | 解析本命令的 token；调用接收者；记住本次返回的逆操作 |
-| Receiver | `Document` 与 `Shape` | 结构不变量在文档，几何与属性在图形 |
+| 目标接口 | `SvgTextCodec` | `TextFiles` |
+| 被适配者 | `@xmldom/xmldom` | `node:fs` |
+| 适配器 | `XmlSvgCodec` | `NodeTextFiles` |
 
-编辑命令的形状：
+写出不交给 XML 库。`SvgSerializer` 按固定顺序生成声明、根元素和属性。解析结果是 `RawElement`，库的类型不出 `io`。缺 id 时按「标签名 + 序号」补上并警告。`transform` 等未知属性警告后丢弃，不烘焙进几何，避免和直接改坐标的 `move` / `scale` 叠成两次变换。
 
-```text
-execute:
-  校验参数（仍不改文档）
-  edit = document.move(id, dx, dy)     # 接收者完成规则，并返回逆操作
-  保存 edit
-  返回 edit 的结果行
+#### 工厂方法 Factory Method
 
-undo:
-  返回 edit.undo()                     # 逆操作由接收者在当时生成
-```
+`ShapeProvider.create` / `read` 由具体提供者实现。`CreateCommand` 和 `SvgLoader` 只向 `ShapeRegistry` 要一次类型，自己不区分矩形和圆。`match` 按注册逆序取第一个匹配，以后的插件后登记即可盖住内置的 `g`。
 
-`redo` 不是把上一次的文本再打印一遍，而是再次调用 `execute()`。调用者保证同一条命令严格按「执行 → 撤销 → 再执行」交替。新的编辑会清空 redo 栈。
+#### 策略 Strategy
 
-逆操作是接收者返回的 `Restorable`，命令看不见几何字段。`Shape.checkpoint()` 只拍下本次会改到的子树：叶子记下自己的几何，容器递归记下子孙。删除、分组、调整顺序则由 `Document` 记下父容器和索引。不使用整文档快照。
+`HistoryPolicy` 有四种对象：`edit`、`reset`、`lock`、`none`。`CommandHistory` 在命令成功后调用 `policy.apply`，不再自己写一串字符串分支。新增一种历史效果时，加一个策略对象，历史栈的撤销和重做循环不用改。`canvas` 不带参数时用 `none`，带尺寸时用 `lock`。
 
-#### 哪些命令入栈
+#### 模板方法 Template Method
 
-| 策略 `historyPolicy` | 命令 | 成功之后 |
-|---|---|---|
-| `edit` | `create` `delete` `move` `scale` `set` `group` `ungroup` `addto` `front` `back` | 压入 undo 栈，清空 redo 栈，解除锁定 |
-| `reset` | `init` `read` | 两栈清空，并锁定。旧命令引用的是上一份文档，不能再执行 |
-| `lock` | `save`；`canvas` 的修改尺寸 | 保留 undo 栈，清空 redo 栈，锁定 |
-| `none` | `tree` `show` `help`；`canvas` 不带参数 | 两栈与锁定标志都不变 |
+`PaintedShape` 规定属性操作的步骤：先看是不是几何名，再看是不是文字内容，再看是不是 `fill` / `stroke` / `stroke-width`，最后才报未知属性。快照也是同一套顺序。矩形、圆、椭圆、线和文字只实现自己的字段怎么读、怎么写、怎么拍下来。外观逻辑只写在这一处。
 
-锁定期间 `undo` / `redo` 一律：
+#### 迭代器 Iterator
 
-```text
-error: undo not allowed after io command
-```
+`ShapeIterator` 按文档前序逐个取出图形。`group` 要按这个顺序收编成员，而不是按参数书写顺序。调用方不接触容器内部数组。
 
-下一次**成功的编辑命令**解除锁定。失败的命令不入栈、不锁定、也不解锁。因此「保存之后先撤销」会失败；保存之后再 `move`，可以撤销这次 `move`，并继续撤销保存之前的编辑。`init` / `read` 因为已经清空栈，解锁后也不会把上一份文档的命令应用到新文档上。
+#### 备忘录 Memento
 
-没有文档时，除 `init`、`read`、`help` 外都失败，并且优先于锁定判断：
+`ShapeMemento` 保存一次编辑前的状态。叶子记下自己的数和外观，组记下每个子孙的备忘录。命令只调用 `restore()`。`scale` 的撤销恢复这份备忘录，不乘 `1/factor`，避免浮点走不回去。不做整份文档的快照。
 
-```text
-error: no document. use 'init' or 'read' first
-```
+#### 外观 Facade
 
-撤销栈为空且未锁定：`error: nothing to undo`。重做栈为空且未锁定：`error: nothing to redo`。这两条是规格表之外、实现所必需的反馈。
+`CliController` 是一行文本进入系统的唯一入口。分词、按名找到命令、交给历史栈、把 `EditorError` 收成一行 `error:`，都在这里结束。`Repl` 只负责提示符和打印。
 
-用户输入的 `ungroup` 不能解散顶层容器，也不能解散复合图形。撤销一条 `group` 时走的是当时记下的逆操作，不受这条用户禁令限制。否则「把两个顶层图形收成一组」将无法撤销。
+#### 本阶段仍然不用的模式
 
-#### 命令与接收者的分工
-
-| 命令 | 命令自己保存的参数 | 接收者做的事 |
-|---|---|---|
-| `create` | 类型名、id、原始参数、可选父 id | 登记表创建图形；检查 id；挂到父容器末尾 |
-| `delete` | id | 从父容器摘下整棵子树，移出 id 索引，记住位置 |
-| `move` / `scale` | id、位移或比例 | 图形（容器则递归子孙）修改几何，先拍检查点 |
-| `set` | id、属性名、新值 | 图形按自己的白名单修改；先读旧值 |
-| `group` | 新 id、成员 id 列表 | 祖先检查、按文档原顺序收编、插入新容器 |
-| `ungroup` | 容器 id | 顶层禁令、复合图形禁令、子节点升到原位置 |
-| `addto` | 容器 id、图形 id | 循环检查，插到目标容器末尾 |
-| `front` / `back` | id | 在同级子列表中移到末尾 / 开头 |
-| `init` | 宽高 | 换上新文档，路径清空 |
-| `read` | 路径 | 读文本、解析、装载；成功后更换文档并记下路径 |
-| `save` | 可选路径 | 序列化并写入；省略路径时用当前路径 |
-| `canvas` | 可选宽高 | 查询或只改画布宽高与 viewBox |
-| `tree` / `show` | 可选或必需的 id | 生成规格中的文本 |
-| `help` | 无 | 按注册顺序输出用法 |
-
-`create` 的类型名只在 `ShapeRegistry` 查询一次。`CreateCommand` 不认识 `rect` 与 `circle` 的差别。
-
-### 2.2 组合：容器与叶子统一操作
-
-```plantuml
-@startuml
-skinparam shadowing false
-
-interface ShapeContainer {
-  +children(): Shape[]
-  +insert(index, Shape)
-  +remove(Shape): int
-}
-
-class SvgRoot {
-  -width: number
-  -height: number
-}
-class Document {
-  -root: SvgRoot
-  -index: Map
-}
-abstract class Shape {
-  -id: string
-  -parent: ShapeContainer
-  +move(dx, dy)
-  +scale(factor)
-  +setAttribute(name, value)
-  +checkpoint(): Restorable
-  +typeName(): string
-  +summary(): string
-  +detail(): string
-  +isContainer(): boolean
-  +ungroupPolicy(): UngroupPolicy
-  +annotation(): string
-  +extraAttributes(): Attr[]
-}
-class GroupShape
-class RectShape
-class CircleShape
-class EllipseShape
-class LineShape
-class TextShape
-
-Document *-- SvgRoot
-SvgRoot ..|> ShapeContainer
-GroupShape --|> Shape
-GroupShape ..|> ShapeContainer
-GroupShape o-- "*" Shape
-RectShape --|> Shape
-CircleShape --|> Shape
-EllipseShape --|> Shape
-LineShape --|> Shape
-TextShape --|> Shape
-Document o-- Shape : id 索引
-@enduml
-```
-
-`SvgRoot` 是容器，但不是 `Shape`。它没有 id，不能被 `move`、`delete`、`group`。画布尺寸只通过 `canvas` / `init` / `read` 改变。这样叶子与 `<g>` 的统一操作不必为根节点再写特例。
-
-结构不变量全部收在容器的 `insert` / `remove` 和 `Document` 的索引维护里：
-
-- 每个图形 id 全局唯一、大小写敏感，索引是唯一入口
-- 在树上 ⟺ 出现在父容器的子列表中，且 id 在索引中
-- 被删除的对象只被撤销令牌引用，id 不保留占用。之后可以用同一 id 再 `create`；按栈的顺序先撤销创建、再撤销删除，不会撞 id
-- 父子指针只由容器改。外部不能替换公开的子数组
-- `front` 移到同级末尾，`back` 移到同级开头。SVG 中后出现的兄弟画在上层
-- 分组时若某个成员是另一个成员的祖先：`error: cannot group a container into its own descendant: <祖先id>`
-- `addto` 把容器放进自己的子孙：`error: cannot move a container into its own descendant: <id>`
-- 新分组插在「文档顺序中第一个成员」原来的位置，成员按原来的文档顺序进入新组，而不是按参数书写顺序
-- `ungroup` 把子节点按原顺序插到该组所在的索引，组本身删除
-- `scale` 把该图形每一个几何数乘上因子（相对原点，不是绕中心）。容器递归到每个子孙，每个叶子只乘一次。因子必须为正：`error: scale factor must be positive`
-- `move` 只加位移，不改宽高和半径。容器同样只递归一次
-
-`set` 的白名单在具体图形里，不在命令里：
-
-| 类型 | 可设置 |
+| 模式 | 原因 |
 |---|---|
-| rect | `x` `y` `width` `height` `fill` `stroke` `stroke-width` |
-| circle | `cx` `cy` `r` `fill` `stroke` `stroke-width` |
-| ellipse | `cx` `cy` `rx` `ry` `fill` `stroke` `stroke-width` |
-| line | `x1` `y1` `x2` `y2` `fill` `stroke` `stroke-width` |
-| text | `x` `y` `text` `fill` `stroke` `stroke-width` |
-| g | 本阶段没有可设置属性 |
+| 访问者 | 后续要加的是图形类型。访问者会让每个新类型改遍所有操作。遍历放在组合和迭代器上，节点差异用多态 |
+| 观察者 | 消费者只有 REPL，而且命令同步返回文本。第二个界面出现之后，再由文档通知视图 |
+| 装饰器 | `fill` 和 `stroke` 是属性，不是包在对象外面的一层职责 |
+| 单例 | 工作区、注册表、历史栈都由 `Main` 创建。测试可以再造一套 |
 
-白名单之外：`error: unknown attribute: <attr>`。未出现过的 `fill` / `stroke` 保持「未设置」，序列化和 `show` / `tree` 都省略它，从而保留 SVG 默认外观。
-
-`annotation()` 默认返回空串。树形文本直接拼接它。以后的 `box` 返回 ` (box)`，呈现代码不用改。`extraAttributes()` 默认返回空。`box` 以后从这里写出 `data-kind="box"`。`ungroupPolicy()` 对普通组返回可解散，对插件复合图形返回不可解散。
-
-### 2.3 适配器：XML 与文件系统
-
-领域定义目标接口，外部库留在 `io`。
-
-| 角色 | XML | 文件系统 |
-|---|---|---|
-| Target | `SvgTextCodec`：`parse(text) → RawElement`，`format(document) → text` | `TextFiles`：`read(path)` / `write(path, text)` |
-| Adaptee | XML 解析库（实现时用保持元素顺序的 DOM 解析器） | `node:fs` |
-| Adapter | `XmlSvgCodec` | `NodeTextFiles` |
-| Client | `ReadCommand`、`SaveCommand`、`SvgLoader`、`SvgSerializer` | `ReadCommand`、`SaveCommand` |
-
-`format` 不委托给 XML 库。写出顺序是本编辑器的契约，由 `SvgSerializer` 按下面的顺序自己生成，适配器只把字符串交给它：
-
-1. XML 声明：`<?xml version="1.0" encoding="UTF-8"?>`
-2. 根元素带 `xmlns`、`width`、`height`、`viewBox="0 0 W H"`
-3. 图形属性顺序：`id`、该类型的几何属性、已设置的 `fill`、`stroke`、`stroke-width`，然后才是 `extraAttributes()`
-4. 空元素自闭合；`text` 的内容是转义后的子文本；两空格缩进
-
-`parse` 把库的节点翻译成不可变的 `RawElement`（标签、属性、文本、有序子元素）。库的类型不得出现在 `io` 以外。
-
-读取子集：`svg`、`g`、`rect`、`circle`、`ellipse`、`line`、`text` 以及上表中的属性。这是规格样例和本程序自己 `save` 的并集。
-
-- 缺 id：按标签名加从 1 开始的序号分配第一个空闲 id，并打印 `warning: assigned id rect1 to unnamed <rect>`
-- 不认识的属性（含 `transform`、`data-kind`）：丢弃并 `warning: ignored attribute <name> on <tag>`。不把 `transform` 半解进几何，避免和「直接改几何」的 `move` / `scale` 叠成两次变换
-- 不认识的标签、缺必需几何、根不是 `svg`、文件中的 id 重复：整次 `read` 失败，当前文档保持原样
-- `viewBox` 与宽高不一致时以宽高为准，并警告 viewBox 被忽略
-
-`DocumentFiles` 这类「读路径直接返回文档」的合并接口不采用。解析、装载、磁盘分成三步之后，装载可以用内存中的 `RawElement` 测试，不必准备真实文件。
-
-### 2.4 两处工厂，以及待重构标记
-
-`ShapeProvider`：
-
-```text
-typeName                         "rect"
-svgTag                           "rect"
-matches(raw) → boolean           本阶段：标签相等
-create(id, args) → Shape         校验该类型的参数并构造
-read(raw, children) → ReadPiece  由已解析的中性元素构造，并带回警告
-usage of create                  给 help 用的参数片段
-```
-
-`ShapeRegistry.byName` 与 `ShapeRegistry.match` 是同一张表的两个查询。`match` 按**注册逆序**取第一个匹配。本阶段只有标签匹配，逆序还不会改变结果；插件阶段让 `box` 后注册，并让它的 `matches` 识别 `g` 加 `data-kind="box"`，未注册时内置 `g` 仍接收这种元素，语义降级为普通组。
-
-`ShapeBindings.registerBuiltins` 是图形名分派的唯一位置，文件头注明「待重构」。命令名的唯一位置是 `CommandBindings.registerBuiltins`，同样注明。替换方向是：提供者或命令自己向注册表登记，调用点保持「按名查找」而不是在业务方法里加分支。在那次重构发生之前，不允许再增加第三处名字分派。
-
-`help` 按登记顺序打印每条命令的 `usage`，不另写一份命令清单。
-
-### 2.5 本阶段不采用的模式
-
-这些模式在课程里已经学过。这里写明条件为何不成立，避免实现时为了「用上模式」把结构加厚。
-
-| 模式 | 本阶段的判断 |
-|---|---|
-| 访问者 | 后续变化是增加图形类型（`box` 及别的插件），操作集合相对固定。访问者会在每个新类型上修改全部已有操作。树的遍历放在 `GroupShape`，节点差异用多态方法 |
-| 观察者 | 状态变化的消费者只有 REPL 这一处，而且是同步返回文本。没有一组动态视图需要通知。图形界面出现时，再让文档在变更后通知视图；命令对象仍然是修改入口 |
-| 装饰器 | 没有「给单个对象叠一层、还可拆掉」的职责。`fill` 与 `stroke` 是属性，不是包装 |
-| 策略 | 几何算法不需要在运行时替换。类型差异由子类表达 |
-| 备忘录框架 | 撤销状态就是命令持有的 `Restorable`。不再做统一的文档快照管理器 |
-| 单例 | 工作区、注册表、历史栈都由 `Main` 创建并传入。测试可以平行创建第二套，不从全局取 |
-
-脚本回放使用规格已经给出的方式：以 `#` 开头的文本脚本逐行送进同一个 REPL。不另做宏记录器。
-
----
-
-## 3. 依赖方向规则
-
-允许的方向只有：
+### 3. 依赖方向规则
 
 ```text
 app → cli, command, session, domain, io
-cli → （仅自己的接口与词法；不依赖 app 的具体类）
 command → session, domain
 session → domain
 io → session, domain
-domain → （无向外的依赖）
+domain → （不向外依赖）
+cli → 只依赖自己的接口和词法
 ```
 
 | 规则 | 理由 |
 |---|---|
-| `domain` 不依赖 `command`、`cli`、`io`、`session` | 图形规则要能脱离终端和磁盘测试。文档不知道「谁在撤销」 |
-| `command` 不依赖 `cli` 与 `io` 的具体类 | 命令可以被另一个入口复用。它只依赖 `TextFiles`、`SvgTextCodec` 这两个端口 |
-| `cli` 不依赖 `command` 与 `domain` | 交互变化（提示符、引号规则）不应带动文档。`Repl` 只调用 `SessionController` |
-| `io` 不依赖 `command` 与 `cli` | 适配器没有命令和会话的概念 |
-| `session` 不依赖 `command` | 当前文档和路径不是历史栈的一部分。锁定标志放在 `CommandHistory`，避免文档命令反过来调用栈 |
-| 具体适配器只被 `app` 实例化 | 生产用 `NodeTextFiles` + `XmlSvgCodec`；测试换内存实现和固定 XML 文本 |
-| 两处注册表的具体名单只写在 `app` | 领域里的 `ShapeRegistry` 是空表，自己不 import 六个具体图形提供者 |
+| `domain` 不依赖命令、交互、磁盘实现 | 图形规则要能脱离终端测试 |
+| 命令只依赖 `TextFiles` 和 `SvgTextCodec` | 另一个入口可以复用同一批命令 |
+| `cli` 不依赖命令和文档 | 提示符和引号规则的变化不带动文档 |
+| 具体适配器只在 `app` 里创建 | 测试换内存文件 |
+| 两处注册表的具体名单只写在 `app` | 领域里的注册表自己是空的 |
+| 锁定标志在 `CommandHistory` | 文档命令不必回头调用栈 |
 
-以下都算违反，实现时要改回来，而不是改这条规则：
+以下都算违反：领域代码出现命令名、`readline`、`node:fs` 或 XML 库类型；命令类 import `XmlSvgCodec` 或 `NodeTextFiles`；`Repl` import 具体图形；在 `Document` 或命令里用 `switch` / `instanceof` 区分矩形和圆；把工作区做成全局单例。
 
-- `Shape`、`Document`、`SvgLoader` 出现命令名、`readline`、`node:fs` 或 XML 库类型
-- 某个命令类 import `XmlSvgCodec` 或 `NodeTextFiles`
-- `Repl` import 具体命令或具体图形
-- 在 `Document` 或任意命令里用 `switch` / `instanceof` 区分 `rect` 与 `circle`
-- 为了少传一个参数，把工作区做成全局单例
-- 图形类为了打印错误而直接写标准输出。错误一律抛 `EditorError`，由 `CliController` 接住
+错误抛 `EditorError`，消息里已经带 `error:`。校验全部通过之后才改第一处状态。
 
-`EditorError.message` 已含规格要求的 `error:` 前缀。捕获点只打印，不再包装一次。警告不是异常：`warning:` 行与成功行一起作为本次结果返回，调用者原样输出。
+### 4. 变化点假设
 
-失败原子性：接收者在修改第一处状态之前完成全部校验。一旦抛出 `EditorError`，文档、路径、两栈和锁定标志都与调用前相同。
-
----
-
-## 4. 变化点假设
-
-按「以后真会出现的变化」排列。每一条都说明留下的缝，或者为什么现在不留。
-
-### 4.1 新的图形类型（最可能，规格已写明）
-
-`box` 要同时是容器、叶子操作的接收者和序列化时的普通 `<g>`。本阶段不实现它，但下面的缝是为「内核增量为零」准备的：
-
-| 插件需要的能力 | 现在就有的落点 |
+| 以后的变化 | 现在留下的缝，或决定不留的原因 |
 |---|---|
-| 注册类型名和 `create` 参数 | `ShapeProvider` + `ShapeRegistry.byName` |
-| 读回时识别自己、未安装时降级为 `g` | `matches` 的逆序；内置 `g` 接受一切 `<g>` |
-| 整体 `move` / `scale` / `delete` | 继承 `GroupShape`，组合操作已经递归 |
-| `set fill` / `set label` 转发到子部件 | 覆盖 `setAttribute` |
-| 拒绝 `ungroup` | 覆盖 `ungroupPolicy` |
-| 写出 `data-kind`，树中显示 `(box)` | `extraAttributes` 与 `annotation` |
-| 子部件 id 派生 | 插件自己的 `create`，内核的 id 索引只要求最终唯一 |
-
-不把 `box` 写进 `ShapeBindings` 的内置名单。本阶段 `create box` 的结果是：
-
-```text
-error: unknown shape type: box (is the plugin loaded?)
-```
-
-### 4.2 新的编辑命令（很可能）
-
-对齐、复制、改 id，都会是新的用户动作。添加方式是一个新的命令类，再在 `CommandBindings` 登记一行。历史策略、帮助文本和参数解析都跟这个类走。
-
-现在不做「命令插件加载器」。规格没有第二个命令来源，加载器会变成没有接收者的插槽。
-
-### 4.3 第二个入口：图形界面或 agent（很可能）
-
-规格把 id 定为三种入口共用的寻址方式，所以查找只按 id，不引入 XPath 式路径。
-
-命令对象已经和 `Repl` 分开。以后的按钮或 agent 可以构造同一个 `MoveCommand`，交给同一个 `CommandHistory`。这一步不需要改接收者。
-
-现在不加重观察者。界面出现之后，需要刷新的是视图：那时再由文档在结构变更后通知已注册的视图。在只有 REPL 时加观察者，只是多一个永远只有一个订阅者的列表。
-
-### 4.4 真实 SVG 里的 `transform`（可能）
-
-样例和本程序写出的文件都不依赖 `transform`。`move` / `scale` 直接改几何数，树形显示才能反映新坐标。
-
-现在读到 `transform` 只警告并丢弃，不留「变换栈」或装饰器。半实现（只认 `translate`、不认 `matrix`）会让回读结果看起来像支持了，实际上坐标是错的。等需要兼容外部文件时，单独做一次「在装载时把变换烘焙进几何」或「把变换建成一等模型」，二选一，不在本阶段预埋两套坐标。
-
-### 4.5 更多呈现属性（可能）
-
-`opacity`、`font-size`、`text-anchor` 出现在 SVG 背景材料里，但不在 `set` 白名单中。本阶段读到就按未知属性警告并丢弃，写文件时不产生。
-
-白名单已经在各个图形类内部。增加一种属性时改的是该图形及其提供者，不是命令，也不是序列化的主循环。现在不为「任意属性字典」开一个公共地图，否则未知属性会绕过白名单被写回去。
-
-### 4.6 路径寻址（规格明确排除）
-
-不留 `Locator` 接口。命令的参数类型就是 id 字符串。两条寻址方式会让每一条命令分成两套查找。
-
-### 4.7 多人同时编辑（本阶段不认为会发生）
-
-不留操作变换或版本向量。撤销栈是单会话、内存中的命令序列。这个假设如果将来被推翻，改的是 `CommandHistory` 的边界，而不是图形类。
-
-### 4.8 文案国际化（不准备）
-
-成功行和 `error:` / `warning:` 前缀是规格契约，测试按原文断言。不抽消息目录。
-
-### 4.9 撤销粒度变大（只在真的出现时再改）
-
-当前一条用户命令一个栈元素，逆操作只含该次碰到的子树。若将来某条命令要改上万个图形，仍由那条命令持有一个更大的 `Restorable`，不提前换成整文档快照。整文档快照会把 `save` 这样的非编辑动作也卷进沉重的拷贝，并模糊「谁改了什么」。
+| `box` 这类插件图形 | `ShapeProvider`、`matches` 逆序、组的递归操作。插件覆盖 `setAttribute`、`ungroupPolicy`、`annotation`、`extraAttributes`。本阶段不登记 `box` |
+| 对齐、复制、改 id 等新命令 | 一个新命令类，再在 `CommandBindings` 登记一行，并选定一个 `HistoryPolicy`。不做命令插件加载器，没有第二个命令来源 |
+| 图形界面或 agent | 仍按 id 寻址，复用同一个命令对象和 `CommandHistory`。现在不加观察者 |
+| 外部 SVG 的 `transform` | 只警告并丢弃。半解析 `translate` 会让坐标看起来支持了、实际上是错的 |
+| `opacity`、`font-size` 等 | 按未知属性丢弃。白名单在各图形类内部 |
+| XPath 式路径寻址 | 不留。规格已排除，命令参数就是 id |
+| 多人同时编辑 | 不留。撤销栈是单会话的内存序列 |
+| 文案国际化 | 不留。这些英文字符串就是契约 |
+| 一次改动上万个图形 | 仍由那一条命令持有更大的备忘录，不提前换成整文档快照 |
+| 新的历史效果，例如「宏」 | 加一个 `HistoryPolicy`，历史栈的 undo/redo 循环不动 |
 
 ---
 
-## 5. 行为契约
+## 过程记录
 
-实现和测试按本节断言。规格样例里的树是示意对齐，列宽不作为契约；契约是前缀、id、几何和属性这些记号。
+实现分两段。先写架构方案，再写代码。第二段才把策略、模板方法、迭代器和备忘录补进已经重复的地方。
 
-### 5.1 交互
+1. **命令里不能写业务。** 初稿容易把「能不能解散」「成员按什么顺序收编」写进 `GroupCommand`。这样撤销顶层分组会误走用户禁令。纠正之后，结构不变量在 `Document`，几何在 `Shape`，命令只保存 `EditResult`。撤销 `group` 用当时的逆操作，顶层禁令只约束用户输入的 `ungroup`。
 
-- 启动先输出 `svg-editor 0.1 — type 'help' for commands`，之后每行提示 `svg>`
-- 去掉首尾空白后为空，或第一个字符是 `#`：不执行、不输出。不支持行尾注释，避免和颜色 `#ffffff` 冲突
-- 参数以空白分开；双引号成组；`\"` 与 `\\` 是转义。引号不闭合：`error: unclosed quote`
-- 未知命令：`error: unknown command: <name>`
-- 参数不合语法：`error: usage: <该命令的用法>`
-- 成功的编辑命令回显一行摘要；`tree` / `show` / `help` 直接输出内容
-- 结果与错误都写到同一输出流，错误行保持 `error:` 前缀，便于对照规格记录
-- 数字输出：与整数相差不超过 `1e-9` 的打印成整数，否则最多六位小数并去掉尾零。坐标对的格式是 `(130,100)`，逗号后无空格
+2. **不要为了用访问者去遍历 SVG。** 语法树分析适合访问者，因为节点类型稳定、分析在增加。这个编辑器后面要加的是图形类型，操作集合相对固定。若用访问者，每加一种图形就要改序列化、树形显示和属性设置。现在这些都是图形自己的方法，`ShapeIterator` 只负责前序，不负责「看见矩形就做什么」。
 
-`create` 的 `in <containerId>` 只识别参数末尾这一对 token。文本内容因为有引号，不会和 `in` 混淆。容器不存在：`error: no such container: <id>`。存在但不是容器：`error: not a container: <id>`。
+3. **缩放的撤销不能靠乘回去。** 直接乘 `1/factor` 会留下浮点误差，树形显示对不上。命令持有 `ShapeMemento`，撤销时整段几何一起恢复。
 
-`init` 与 `canvas` 要么不给尺寸，要么宽高都给。只给一个数视为用法错误。默认画布 `800×600`。不裁剪越出画布的图形，规格没有这项约束，裁剪也会让撤销不再是简单的逆操作。
+4. **`transform` 不能读进来又只处理一部分。** 背景材料里的 SVG 用 `translate` 移动整组。本程序的 `move` 是直接改坐标。若装载时只认 `translate`、不认 `matrix`，图会看起来读对了，坐标却是错的。未知属性现在警告并丢弃。
 
-`save` 不带路径时写入当前路径。当前路径来自最近一次成功的 `read` 或带路径的 `save`。`init` 清空路径。没有路径：`error: no file path. use 'save <file.svg>'`。
+5. **历史效果从字符串分支收成策略。** 第一版 `CommandHistory` 用 `"edit"` / `"reset"` / `"lock"` / `"none"` 四个分支决定入栈。四种行为已经稳定出现（查询、编辑、换文档、保存），再加一种就要改调用者。`HistoryPolicy` 把这四种效果变成对象，`canvas` 按有没有尺寸选择 `none` 或 `lock`。
 
-文件失败保持规格原文：`error: cannot read file: <path>`、`error: cannot write file: <path>`。
+6. **四种数值图形的属性代码重复。** 矩形、圆、椭圆、线各自复制了一遍「几何名、外观、未知属性、拍快照」。`PaintedShape` 把这个顺序固定成模板，子类只留下字段。文字的 `text` 属性走模板上的扩展点，不另写一套外观逻辑。
 
-### 5.2 成功回显
+7. **分组顺序用迭代器，不用在 `Document` 里再写一遍递归。** 规格要求保持成员在文档中的相对顺序。`ShapeIterator` 的前序就是这个顺序。`group` 用它筛选成员，插入位置取文档顺序中的第一个成员。
 
-| 动作 | 执行后 | 撤销后 |
+---
+
+## 一致性自查
+
+### 模块划分
+
+实际目录与方案一致：`app`、`cli`、`command`、`session`、`domain`、`io`，外加 `test` 和 `examples`。
+
+第二段新增的类型没有新模块：
+
+| 类型 | 所在模块 | 原因 |
 |---|---|---|
-| `init 800 600` | `canvas 800x600 created` | 不入栈 |
-| `canvas` | `canvas 800x600` | 不入栈 |
-| `canvas 400 200` | `canvas resized to 400x200` | 不入栈 |
-| `read a.svg` | 警告（若有），然后 `read a.svg (N elements)` | 不入栈 |
-| `save a.svg` | `saved to a.svg (N elements)` | 不入栈 |
-| `create rect r1 …` | `rect#r1 created` | `rect#r1 removed` |
-| `create rect r1 … in g1` | `rect#r1 created in g#g1` | `rect#r1 removed` |
-| `delete` 叶子或组 | `rect#box deleted` | `rect#box restored into g#markers`；父级是画布时 `restored into svg` |
-| `move` 叶子 | `circle#c1 moved to (130,100)` | `circle#c1 moved back to (100,100)` |
-| `move` 组 | `g#node2 moved by (0,100)` | `g#node2 moved back by (0,-100)` |
-| `scale` | `circle#c1 scaled by 2` | `circle#c1 scale restored` |
-| `set` | `text#title updated: text="My Diagram v2"` | 同一句式，值为旧值。文本加引号，其余不加 |
-| `group` | `g#markers created with 2 children` | `g#markers ungrouped` |
-| `ungroup` | `g#id ungrouped` | `g#id regrouped with N children` |
-| `addto` | `circle#c1 added to g#markers` | `circle#c1 returned to g#old` 或 `returned to svg` |
-| `front` / `back` | `circle#c1 brought to front` / `sent to back` | `circle#c1 z-order restored` |
+| `HistoryPolicy` | `command` | 它只描述命令成功后栈怎么变 |
+| `PaintedShape`、`ShapeIterator`、`ShapeMemento` | `domain` | 它们是图形模型的一部分 |
+| `examples/` | 演示，不是运行时模块 | 命令脚本和生成的 SVG |
 
-`N elements` 统计索引中的全部图形，不含 `svg` 根。叶子的 `moved to` 使用该类型的代表点：矩形和文字是 `(x,y)`，圆和椭圆是 `(cx,cy)`，线是 `(x1,y1) -> (x2,y2)`。代表点由图形自己的摘要方法给出。
+`SvgLoader.ts` 里有一个不导出的 `LoadIds`，只在读文件时分配 id。它不是新的公开模块。
 
-`scale` 的撤销恢复检查点，不乘 `1/factor`，避免浮点走不回去。
+### 依赖方向
 
-### 5.3 规格中的错误，按原文
+抽查结果与规则一致：
 
-| 条件 | 输出 |
-|---|---|
-| id 已存在 | `error: id already exists: r1` |
-| id 不存在 | `error: no such shape: r9` |
-| `in` 的目标不存在 | `error: no such container: node9` |
-| `in` 的目标不是容器 | `error: not a container: start` |
-| 未注册类型 | `error: unknown shape type: hexagon (is the plugin loaded?)` |
-| 解散复合图形 | `error: cannot ungroup composite shape: n1` |
-| 分组成员有祖先关系 | `error: cannot group a container into its own descendant: g1` |
-| 解散画布的直接子容器 | `error: cannot ungroup top-level container: scene` |
-| 比例不是正数 | `error: scale factor must be positive` |
-| 读或写失败 | `error: cannot read file: a.svg` / `error: cannot write file: a.svg` |
-| 还没有文档 | `error: no document. use 'init' or 'read' first` |
-| 文档命令之后立刻撤销或重做 | `error: undo not allowed after io command` |
-| 未知属性 | `error: unknown attribute: <attr>` |
+- `src/domain` 的 import 都停在 `domain` 内部，没有命令、交互或 `io`
+- `src/command` 只引用 `domain` 和 `session` 的类型，没有 `XmlSvgCodec`、`NodeTextFiles`、`Repl`
+- `src/cli` 不引用 `domain`
+- `src/io` 实现 `TextFiles` 和 `SvgTextCodec`，被 `app/Main.ts` 创建后注入
+- `Repl` 的构造参数类型是 `SessionController`，不是 `CliController`
 
-`group` 至少两个已存在的成员 id。成员重复：`error: duplicate id in arguments: <id>`。对叶子执行 `ungroup`：`error: not a container: <id>`。
+没有为了少传参数而把工作区做成单例。测试用 `SessionHarness` 自己装配一套内存文件。
 
-### 5.4 `tree` 与 `show`
+---
 
-`tree` 默认从画布根开始，`tree <id>` 从该图形开始。前缀规则：
+## 质量保证手段
 
-- 非末子：`├── `
-- 末子：`└── `
-- 父级不是末子时，子孙前缀加 `│   `
-- 父级是末子时，子孙前缀加四个空格
+功能是否完整，对照的是命令表、错误原文和 `examples/library.commands` 这条长会话，不是只看编译通过。
 
-节点文本是 `类型#id`，接着 `annotation()`，若有几何再加两个空格和该类型的摘要。组没有自身几何时，行末就停在 id 与标注。
+`npm test` 现有 10 个测试，覆盖：
 
-`show` 固定为：
+- 规格中的编辑会话：创建、分组、移动、撤销、重做、改文字、保存后禁止立刻撤销
+- 非整组相邻图形的分组，以及撤销后恢复原来的兄弟顺序
+- 组缩放只作用一次（外层组里还有内层组）
+- 顶层容器不能 `ungroup`，嵌套组可以，撤销会按原人数再编回去
+- 外部 SVG 缺 id 时的警告、七个元素的树、再保存再读回后树不变
+- `transform` 被丢弃，矩形坐标仍是文件里的数
+- 没有文档时的 `undo`、读不到文件时当前文档不变、`create box` 的未知类型
 
-```text
-circle#c1  parent=g#markers
-  cx=100 cy=100 r=20
-  fill=red
+另外用编辑器自己把 `examples/library.commands` 跑完，得到 `examples/library.svg`（27 个图形）和 `examples/library-session.txt`。生成命令是 `npm run demo`。这条会话里有嵌套组、三种叶子、椭圆、连线、图例、整组移动和撤销、`tree` 与 `show`。
+
+测试替身是 `MemoryTextFiles`：读和写都不碰磁盘。随机数和时钟没有进入领域模型，所以同一条命令序列的输出是稳定的。
+
+`npx tsc --noEmit` 在严格模式下通过。失败命令在修改状态前抛错，历史栈不会记下失败的那一次。
+
+---
+
+## 演示：城市图书馆一楼
+
+图里有四个区域。阅览大厅、开架书库、咖啡角各是一个组，组内有色块和标题；大厅里还有一个白色服务台圆。中庭是椭圆。三条线是读者动线。右下角是图例。
+
+房间是容器。脚本里先把咖啡角下移 24，再 `undo`，用来在终端里看到 `g#cafe moved by (0,24)` 和 `moved back`。最终图形停在设计位置。
+
+截两张图即可：
+
+1. **终端。** `npm run cli`，把 `examples/library.commands` 的内容逐行贴进去。对照 `examples/library-session.txt`。重点留住 `tree`、`show desk` 和 `saved to examples/library.svg (27 elements)`。
+2. **浏览器。** 打开 `examples/library.svg`（或在 macOS 上执行 `open examples/library.svg`）。应能看到米色底、三个色块房间、中庭椭圆、连线和图例。
+
+重新生成这两个文件：
+
+```bash
+npm run demo
 ```
-
-父级是画布时 `parent=svg`。未设置的外观属性不出现。
-
-### 5.5 一条编辑命令的协作顺序
-
-以 `move c1 30 0` 为例：
-
-```plantuml
-@startuml
-skinparam shadowing false
-actor User
-participant Repl
-participant CliController
-participant CommandBindings
-participant CommandHistory
-participant MoveCommand
-participant Document
-participant CircleShape
-
-User -> Repl : move c1 30 0
-Repl -> CliController : tokens
-CliController -> CommandBindings : "move"
-CommandBindings --> CliController : MoveCommand
-CliController -> CommandHistory : execute(command)
-CommandHistory -> MoveCommand : execute()
-MoveCommand -> Document : move("c1", 30, 0)
-Document -> CircleShape : checkpoint()
-Document -> CircleShape : move(30, 0)
-CircleShape --> Document : Restorable + 摘要
-Document --> MoveCommand : EditResult
-MoveCommand --> CommandHistory : 结果行
-CommandHistory -> CommandHistory : push undo\nclear redo\nunlock
-CommandHistory --> Repl : circle#c1 moved to (130,100)
-@enduml
-```
-
-`CircleShape.move` 之外没有第二处知道「圆要改 `cx`/`cy`」。`MoveCommand` 换成 `GroupShape` 时调用序列相同，递归发生在组的 `move` 内部。

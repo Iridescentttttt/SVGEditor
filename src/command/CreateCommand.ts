@@ -2,7 +2,7 @@ import type { EditResult } from "../domain/EditResult.js";
 import { EditorError } from "../domain/EditorError.js";
 import type { ShapeRegistry } from "../domain/ShapeRegistry.js";
 import type { Workspace } from "../session/Workspace.js";
-import type { HistoryPolicy } from "./Command.js";
+import { HistoryPolicy } from "./HistoryPolicy.js";
 import type { UndoableCommand } from "./UndoableCommand.js";
 
 export class CreateCommand implements UndoableCommand {
@@ -33,7 +33,7 @@ export class CreateCommand implements UndoableCommand {
   ) {}
 
   historyPolicy(): HistoryPolicy {
-    return "edit";
+    return HistoryPolicy.edit;
   }
 
   execute(): readonly string[] {

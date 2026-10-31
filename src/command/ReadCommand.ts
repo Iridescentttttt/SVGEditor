@@ -4,7 +4,7 @@ import type { SvgTextCodec } from "../domain/SvgTextCodec.js";
 import type { TextFiles } from "../session/TextFiles.js";
 import type { Workspace } from "../session/Workspace.js";
 import type { Command } from "./Command.js";
-import type { HistoryPolicy } from "./Command.js";
+import { HistoryPolicy } from "./HistoryPolicy.js";
 
 export class ReadCommand implements Command {
   static readonly usage = "read <file.svg>";
@@ -29,7 +29,7 @@ export class ReadCommand implements Command {
   ) {}
 
   historyPolicy(): HistoryPolicy {
-    return "reset";
+    return HistoryPolicy.reset;
   }
 
   execute(): readonly string[] {

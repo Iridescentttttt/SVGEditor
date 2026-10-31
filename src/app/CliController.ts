@@ -6,6 +6,7 @@ import type { SessionController } from "../cli/SessionController.js";
 import { TokenError } from "../cli/TokenError.js";
 import type { Workspace } from "../session/Workspace.js";
 
+/** 外观：一行文本进入编辑器的唯一入口，REPL 不接触文档和命令。 */
 export class CliController implements SessionController {
   constructor(
     private readonly tokenizer: LineTokenizer,

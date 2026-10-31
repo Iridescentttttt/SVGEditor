@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "cli": "tsx src/app/Main.ts",
+    "demo": "tsx examples/build-demo.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

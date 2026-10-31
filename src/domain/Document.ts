@@ -5,6 +5,7 @@ import { GroupShape } from "./GroupShape.js";
 import type { Shape } from "./Shape.js";
 import type { ShapeContainer } from "./ShapeContainer.js";
 import { SnapshotRestore } from "./SnapshotRestore.js";
+import { ShapeIterator } from "./ShapeIterator.js";
 import { StructureText } from "./StructureText.js";
 import { SvgRoot } from "./SvgRoot.js";
 
@@ -304,16 +305,7 @@ export class Document {
   }
 
   private preorder(): Shape[] {
-    const shapes: Shape[] = [];
-    const walk = (container: ShapeContainer): void => {
-      for (const child of container.children()) {
-        shapes.push(child);
-        const nested = child.asContainer();
-        if (nested) walk(nested);
-      }
-    };
-    walk(this.root);
-    return shapes;
+    return new ShapeIterator(this.root).toArray();
   }
 
   private indexSubtree(shape: Shape): void {

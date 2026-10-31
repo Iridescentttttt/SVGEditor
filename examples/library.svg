@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="640" viewBox="0 0 1000 640">
+  <rect id="paper" x="0" y="0" width="1000" height="640" fill="#f6f1e7"/>
+  <text id="title" x="48" y="64" fill="#243044">城市图书馆导览</text>
+  <text id="subtitle" x="48" y="98">一楼平面 · 读者动线</text>
+  <g id="hall">
+    <rect id="hall-body" x="70" y="150" width="280" height="190" fill="#4a90d9"/>
+    <text id="hall-label" x="150" y="250" fill="#ffffff">阅览大厅</text>
+    <circle id="desk" cx="210" cy="200" r="18" fill="#ffffff"/>
+  </g>
+  <g id="stacks">
+    <rect id="stacks-body" x="450" y="150" width="240" height="190" fill="#f5a623"/>
+    <text id="stacks-label" x="510" y="250" fill="#ffffff">开架书库</text>
+  </g>
+  <g id="cafe">
+    <rect id="cafe-body" x="760" y="150" width="180" height="190" fill="#e07a5f"/>
+    <text id="cafe-label" x="810" y="250" fill="#ffffff">咖啡角</text>
+  </g>
+  <ellipse id="garden" cx="210" cy="470" rx="100" ry="62" fill="#8fbc8f"/>
+  <text id="garden-label" x="178" y="476" fill="#1f3d2a">中庭</text>
+  <line id="to-stacks" x1="350" y1="245" x2="450" y2="245" stroke="#334155" stroke-width="3"/>
+  <line id="to-cafe" x1="690" y1="245" x2="760" y2="245" stroke="#334155" stroke-width="3"/>
+  <line id="to-garden" x1="210" y1="340" x2="210" y2="408" stroke="#334155" stroke-width="3"/>
+  <g id="legend">
+    <rect id="key-hall" x="760" y="400" width="26" height="26" fill="#4a90d9"/>
+    <text id="key-hall-name" x="798" y="420">阅览</text>
+    <rect id="key-stacks" x="760" y="446" width="26" height="26" fill="#f5a623"/>
+    <text id="key-stacks-name" x="798" y="466">书库</text>
+    <rect id="key-cafe" x="760" y="492" width="26" height="26" fill="#e07a5f"/>
+    <text id="key-cafe-name" x="798" y="512">餐饮</text>
+  </g>
+  <text id="legend-title" x="760" y="384">图例</text>
+  <text id="hint" x="70" y="600">房间是容器：move hall 40 0 会连同标题和服务台一起移动</text>
+</svg>

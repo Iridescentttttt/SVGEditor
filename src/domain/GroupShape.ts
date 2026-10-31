@@ -4,7 +4,7 @@ import { EditorError } from "./EditorError.js";
 import type { Restorable } from "./Restorable.js";
 import { Shape } from "./Shape.js";
 import type { ShapeContainer } from "./ShapeContainer.js";
-import { SnapshotRestore } from "./SnapshotRestore.js";
+import { ShapeMemento } from "./ShapeMemento.js";
 import { UngroupPolicy } from "./UngroupPolicy.js";
 
 export class GroupShape extends Shape implements ShapeContainer {
@@ -92,11 +92,11 @@ export class GroupShape extends Shape implements ShapeContainer {
 
   override checkpoint(): Restorable {
     const points = this.items.map((child) => child.checkpoint());
-    return new SnapshotRestore(() => {
+    return new ShapeMemento(() => {
       for (const point of points) {
         point.restore();
       }
-    }, []);
+    });
   }
 
   override treeSummary(): string {

@@ -1,0 +1,113 @@
+svg-editor 0.1 — type 'help' for commands
+
+svg> init 1000 640
+canvas 1000x640 created
+svg> create rect paper 0 0 1000 640 #f6f1e7
+rect#paper created
+svg> create text title 48 64 "城市图书馆导览"
+text#title created
+svg> set title fill #243044
+text#title updated: fill=#243044
+svg> create text subtitle 48 98 "一楼平面 · 读者动线"
+text#subtitle created
+svg> create g hall
+g#hall created
+svg> create rect hall-body 70 150 280 190 #4a90d9 in hall
+rect#hall-body created in g#hall
+svg> create text hall-label 150 250 "阅览大厅" in hall
+text#hall-label created in g#hall
+svg> set hall-label fill #ffffff
+text#hall-label updated: fill=#ffffff
+svg> create circle desk 210 200 18 #ffffff in hall
+circle#desk created in g#hall
+svg> create g stacks
+g#stacks created
+svg> create rect stacks-body 450 150 240 190 #f5a623 in stacks
+rect#stacks-body created in g#stacks
+svg> create text stacks-label 510 250 "开架书库" in stacks
+text#stacks-label created in g#stacks
+svg> set stacks-label fill #ffffff
+text#stacks-label updated: fill=#ffffff
+svg> create g cafe
+g#cafe created
+svg> create rect cafe-body 760 150 180 190 #e07a5f in cafe
+rect#cafe-body created in g#cafe
+svg> create text cafe-label 810 250 "咖啡角" in cafe
+text#cafe-label created in g#cafe
+svg> set cafe-label fill #ffffff
+text#cafe-label updated: fill=#ffffff
+svg> create ellipse garden 210 470 100 62 #8fbc8f
+ellipse#garden created
+svg> create text garden-label 178 476 "中庭"
+text#garden-label created
+svg> set garden-label fill #1f3d2a
+text#garden-label updated: fill=#1f3d2a
+svg> create line to-stacks 350 245 450 245 #334155
+line#to-stacks created
+svg> set to-stacks stroke-width 3
+line#to-stacks updated: stroke-width=3
+svg> create line to-cafe 690 245 760 245 #334155
+line#to-cafe created
+svg> set to-cafe stroke-width 3
+line#to-cafe updated: stroke-width=3
+svg> create line to-garden 210 340 210 408 #334155
+line#to-garden created
+svg> set to-garden stroke-width 3
+line#to-garden updated: stroke-width=3
+svg> create g legend
+g#legend created
+svg> create rect key-hall 760 400 26 26 #4a90d9 in legend
+rect#key-hall created in g#legend
+svg> create text key-hall-name 798 420 "阅览" in legend
+text#key-hall-name created in g#legend
+svg> create rect key-stacks 760 446 26 26 #f5a623 in legend
+rect#key-stacks created in g#legend
+svg> create text key-stacks-name 798 466 "书库" in legend
+text#key-stacks-name created in g#legend
+svg> create rect key-cafe 760 492 26 26 #e07a5f in legend
+rect#key-cafe created in g#legend
+svg> create text key-cafe-name 798 512 "餐饮" in legend
+text#key-cafe-name created in g#legend
+svg> create text legend-title 760 384 "图例"
+text#legend-title created
+svg> create text hint 70 600 "房间是容器：move hall 40 0 会连同标题和服务台一起移动"
+text#hint created
+svg> move cafe 0 24
+g#cafe moved by (0,24)
+svg> undo
+g#cafe moved back by (0,-24)
+svg> tree
+svg (1000x640)
+├── rect#paper  x=0 y=0 w=1000 h=640 fill=#f6f1e7
+├── text#title  (48,64) "城市图书馆导览"
+├── text#subtitle  (48,98) "一楼平面 · 读者动线"
+├── g#hall
+│   ├── rect#hall-body  x=70 y=150 w=280 h=190 fill=#4a90d9
+│   ├── text#hall-label  (150,250) "阅览大厅"
+│   └── circle#desk  cx=210 cy=200 r=18 fill=#ffffff
+├── g#stacks
+│   ├── rect#stacks-body  x=450 y=150 w=240 h=190 fill=#f5a623
+│   └── text#stacks-label  (510,250) "开架书库"
+├── g#cafe
+│   ├── rect#cafe-body  x=760 y=150 w=180 h=190 fill=#e07a5f
+│   └── text#cafe-label  (810,250) "咖啡角"
+├── ellipse#garden  cx=210 cy=470 rx=100 ry=62 fill=#8fbc8f
+├── text#garden-label  (178,476) "中庭"
+├── line#to-stacks  (350,245) -> (450,245)
+├── line#to-cafe  (690,245) -> (760,245)
+├── line#to-garden  (210,340) -> (210,408)
+├── g#legend
+│   ├── rect#key-hall  x=760 y=400 w=26 h=26 fill=#4a90d9
+│   ├── text#key-hall-name  (798,420) "阅览"
+│   ├── rect#key-stacks  x=760 y=446 w=26 h=26 fill=#f5a623
+│   ├── text#key-stacks-name  (798,466) "书库"
+│   ├── rect#key-cafe  x=760 y=492 w=26 h=26 fill=#e07a5f
+│   └── text#key-cafe-name  (798,512) "餐饮"
+├── text#legend-title  (760,384) "图例"
+└── text#hint  (70,600) "房间是容器：move hall 40 0 会连同标题和服务台一起移动"
+svg> show desk
+circle#desk  parent=g#hall
+  cx=210 cy=200 r=18
+  fill=#ffffff
+svg> save examples/library.svg
+saved to examples/library.svg (27 elements)

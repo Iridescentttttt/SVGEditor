@@ -3,7 +3,7 @@ import { Document } from "../domain/Document.js";
 import { EditorError } from "../domain/EditorError.js";
 import type { Workspace } from "../session/Workspace.js";
 import type { Command } from "./Command.js";
-import type { HistoryPolicy } from "./Command.js";
+import { HistoryPolicy } from "./HistoryPolicy.js";
 
 export class InitCommand implements Command {
   static readonly usage = "init [w] [h]";
@@ -26,7 +26,7 @@ export class InitCommand implements Command {
   ) {}
 
   historyPolicy(): HistoryPolicy {
-    return "reset";
+    return HistoryPolicy.reset;
   }
 
   execute(): readonly string[] {

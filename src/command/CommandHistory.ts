@@ -1,28 +1,34 @@
 import { EditorError } from "../domain/EditorError.js";
 import type { Command } from "./Command.js";
+import type { HistoryLedger } from "./HistoryPolicy.js";
 import type { UndoableCommand } from "./UndoableCommand.js";
 
-export class CommandHistory {
+export class CommandHistory implements HistoryLedger {
   private readonly undoStack: UndoableCommand[] = [];
   private readonly redoStack: UndoableCommand[] = [];
   private locked = false;
 
   execute(command: Command): readonly string[] {
     const lines = command.execute();
-    const policy = command.historyPolicy();
-    if (policy === "edit") {
-      this.undoStack.push(command as UndoableCommand);
-      this.redoStack.length = 0;
-      this.locked = false;
-    } else if (policy === "reset") {
-      this.undoStack.length = 0;
-      this.redoStack.length = 0;
-      this.locked = true;
-    } else if (policy === "lock") {
-      this.redoStack.length = 0;
-      this.locked = true;
-    }
+    command.historyPolicy().apply(this, command);
     return lines;
+  }
+
+  recordEdit(command: UndoableCommand): void {
+    this.undoStack.push(command);
+    this.redoStack.length = 0;
+    this.locked = false;
+  }
+
+  recordReset(): void {
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    this.locked = true;
+  }
+
+  recordLock(): void {
+    this.redoStack.length = 0;
+    this.locked = true;
   }
 
   undo(): readonly string[] {

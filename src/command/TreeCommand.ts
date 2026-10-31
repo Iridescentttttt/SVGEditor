@@ -1,7 +1,7 @@
 import { EditorError } from "../domain/EditorError.js";
 import type { Workspace } from "../session/Workspace.js";
 import type { Command } from "./Command.js";
-import type { HistoryPolicy } from "./Command.js";
+import { HistoryPolicy } from "./HistoryPolicy.js";
 
 export class TreeCommand implements Command {
   static readonly usage = "tree [id]";
@@ -17,7 +17,7 @@ export class TreeCommand implements Command {
   ) {}
 
   historyPolicy(): HistoryPolicy {
-    return "none";
+    return HistoryPolicy.none;
   }
 
   execute(): readonly string[] {

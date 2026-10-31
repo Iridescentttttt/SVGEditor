@@ -1,0 +1,49 @@
+init 1000 640
+create rect paper 0 0 1000 640 #f6f1e7
+create text title 48 64 "城市图书馆导览"
+set title fill #243044
+create text subtitle 48 98 "一楼平面 · 读者动线"
+
+create g hall
+create rect hall-body 70 150 280 190 #4a90d9 in hall
+create text hall-label 150 250 "阅览大厅" in hall
+set hall-label fill #ffffff
+create circle desk 210 200 18 #ffffff in hall
+
+create g stacks
+create rect stacks-body 450 150 240 190 #f5a623 in stacks
+create text stacks-label 510 250 "开架书库" in stacks
+set stacks-label fill #ffffff
+
+create g cafe
+create rect cafe-body 760 150 180 190 #e07a5f in cafe
+create text cafe-label 810 250 "咖啡角" in cafe
+set cafe-label fill #ffffff
+
+create ellipse garden 210 470 100 62 #8fbc8f
+create text garden-label 178 476 "中庭"
+set garden-label fill #1f3d2a
+
+create line to-stacks 350 245 450 245 #334155
+set to-stacks stroke-width 3
+create line to-cafe 690 245 760 245 #334155
+set to-cafe stroke-width 3
+create line to-garden 210 340 210 408 #334155
+set to-garden stroke-width 3
+
+create g legend
+create rect key-hall 760 400 26 26 #4a90d9 in legend
+create text key-hall-name 798 420 "阅览" in legend
+create rect key-stacks 760 446 26 26 #f5a623 in legend
+create text key-stacks-name 798 466 "书库" in legend
+create rect key-cafe 760 492 26 26 #e07a5f in legend
+create text key-cafe-name 798 512 "餐饮" in legend
+create text legend-title 760 384 "图例"
+
+create text hint 70 600 "房间是容器：move hall 40 0 会连同标题和服务台一起移动"
+
+move cafe 0 24
+undo
+tree
+show desk
+save examples/library.svg

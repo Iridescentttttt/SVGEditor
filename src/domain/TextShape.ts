@@ -1,15 +1,9 @@
 import { Attr } from "./Attr.js";
 import { DecimalText } from "./DecimalText.js";
-import { EditorError } from "./EditorError.js";
-import { PaintStyle } from "./PaintStyle.js";
-import type { Restorable } from "./Restorable.js";
-import { Shape } from "./Shape.js";
-import { SnapshotRestore } from "./SnapshotRestore.js";
+import { PaintedShape } from "./PaintedShape.js";
 import { XmlText } from "./XmlText.js";
 
-export class TextShape extends Shape {
-  private readonly paint = new PaintStyle();
-
+export class TextShape extends PaintedShape {
   constructor(
     id: string,
     private x: number,
@@ -27,6 +21,47 @@ export class TextShape extends Shape {
     return this.content;
   }
 
+  protected geometryNames(): readonly string[] {
+    return ["x", "y"];
+  }
+
+  protected readNumber(name: string): number {
+    return name === "x" ? this.x : this.y;
+  }
+
+  protected writeNumber(name: string, value: number): void {
+    if (name === "x") this.x = value;
+    else this.y = value;
+  }
+
+  protected captureNumbers(): () => void {
+    const x = this.x;
+    const y = this.y;
+    return () => {
+      this.x = x;
+      this.y = y;
+    };
+  }
+
+  protected override handlesExtra(name: string): boolean {
+    return name === "text";
+  }
+
+  protected override writeExtra(_name: string, value: string): void {
+    this.content = value;
+  }
+
+  protected override formatExtra(_name: string): string {
+    return `text=${XmlText.quote(this.content)}`;
+  }
+
+  protected override captureExtra(): () => void {
+    const content = this.content;
+    return () => {
+      this.content = content;
+    };
+  }
+
   override move(dx: number, dy: number): void {
     this.x += dx;
     this.y += dy;
@@ -37,62 +72,6 @@ export class TextShape extends Shape {
     this.y *= factor;
   }
 
-  override validateAttribute(name: string, value: string): void {
-    if (name === "x" || name === "y") {
-      DecimalText.parse(value);
-      return;
-    }
-    if (name === "text") {
-      return;
-    }
-    if (this.paint.handles(name)) {
-      this.paint.validate(name, value);
-      return;
-    }
-    throw new EditorError(`error: unknown attribute: ${name}`);
-  }
-
-  override setAttribute(name: string, value: string): void {
-    if (name === "x") {
-      this.x = DecimalText.parse(value);
-      return;
-    }
-    if (name === "y") {
-      this.y = DecimalText.parse(value);
-      return;
-    }
-    if (name === "text") {
-      this.content = value;
-      return;
-    }
-    if (this.paint.handles(name)) {
-      this.paint.set(name, value);
-      return;
-    }
-    throw new EditorError(`error: unknown attribute: ${name}`);
-  }
-
-  override formatAssignment(name: string): string {
-    if (name === "x") return `x=${DecimalText.format(this.x)}`;
-    if (name === "y") return `y=${DecimalText.format(this.y)}`;
-    if (name === "text") return `text=${XmlText.quote(this.content)}`;
-    if (this.paint.handles(name)) return `${name}=${this.paint.get(name) ?? ""}`;
-    throw new EditorError(`error: unknown attribute: ${name}`);
-  }
-
-  override checkpoint(): Restorable {
-    const x = this.x;
-    const y = this.y;
-    const content = this.content;
-    const restorePaint = this.paint.capture();
-    return new SnapshotRestore(() => {
-      this.x = x;
-      this.y = y;
-      this.content = content;
-      restorePaint();
-    }, []);
-  }
-
   override treeSummary(): string {
     return `${DecimalText.pair(this.x, this.y)} ${XmlText.quote(this.content)}`;
   }
@@ -101,16 +80,12 @@ export class TextShape extends Shape {
     return [
       `  x=${DecimalText.format(this.x)} y=${DecimalText.format(this.y)}`,
       `  text=${XmlText.quote(this.content)}`,
-      ...this.paint.showLines(),
+      ...this.paintLines(),
     ];
   }
 
   override geometryAttributes(): readonly Attr[] {
     return [new Attr("x", DecimalText.format(this.x)), new Attr("y", DecimalText.format(this.y))];
-  }
-
-  override paintAttributes(): readonly Attr[] {
-    return this.paint.attributes();
   }
 
   override movedText(_dx: number, _dy: number): string {
