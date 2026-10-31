@@ -266,13 +266,54 @@ cli → 只依赖自己的接口和词法
 
 ---
 
-## 演示：城市图书馆一楼
+## Demo
+
+### 典型会话
+
+```text
+init 800 600
+create rect bg 0 0 800 600 #ffffff
+create text title 20 40 "My Diagram"
+create circle c1 100 100 20 red
+create rect box 200 80 60 60 #3366ff
+group markers c1 box
+move c1 30 0
+undo
+redo
+set title text "My Diagram v2"
+undo
+delete box
+undo
+```
+
+![典型会话](examples/session.svg)
+
+### 两节点流程图
+
+```text
+init 800 600
+create g flowchart
+create g node1 in flowchart
+create rect start 120 100 160 60 #4a90d9 in node1
+create text start-label 155 135 "开始" in node1
+create g node2 in flowchart
+create rect process 520 100 160 60 #f5a623 in node2
+create text process-label 545 135 "处理数据" in node2
+create line arrow1 280 130 520 130 black in flowchart
+move node2 0 100
+undo
+set process-label text "处理数据 v2"
+```
+
+![两节点流程图](examples/flowchart.svg)
+
+### 城市图书馆一楼
 
 图里有四个区域。阅览大厅、开架书库、咖啡角各是一个组，组内有色块和标题；大厅里还有一个白色服务台圆。中庭是椭圆。三条线是读者动线。右下角是图例。
 
 房间是容器。脚本里先把咖啡角下移 24，再 `undo`，用来在终端里看到 `g#cafe moved by (0,24)` 和 `moved back`。最终图形停在设计位置。
 
-### Code
+#### Code
 
 ```
 init 1000 640
@@ -326,7 +367,7 @@ show desk
 save examples/library.svg
 ```
 
-### Results
+#### Results
 
 ![城市图书馆一楼导览](examples/library.svg)
 
