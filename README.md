@@ -1,5 +1,7 @@
 # SVGEditor
 
+仓库：https://github.com/Iridescentttttt/SVGEditor.git
+
 命令行矢量图编辑器。用文本命令创建、修改、分组和保存 SVG，生成的文件可以直接用浏览器打开。
 
 本阶段实现画布、六种图形（`rect` `circle` `ellipse` `line` `text` `g`）、结构显示，以及撤销和重做。`box` 是后续插件类型，本阶段输入 `create box` 会报未知类型，内核只留下注册插槽。
@@ -109,64 +111,50 @@ package "io" {
 
 ### 2. 设计模式的选择
 
-模式只加在已经出现的变化上。下面每一条都对应代码里的类型，而不是事后贴上去的名字。
+模式只加在已经出现的变化上。每种模式对应代码里的一组类型。角色划分、调用顺序和关键实现写在 [设计模式与对应代码](doc/design-patterns.md)。
 
-#### 命令 Command（课程要求）
+#### 命令
 
-请求封装成对象。`CommandHistory` 是调用者，`Document` 和 `Shape` 是接收者。具体命令只解析参数、调用接收者、记住返回的逆操作。业务规则不写在命令里。
+一次操作封装成对象，创建和执行分开。`CommandBindings` 先解析参数并装入接收者，`CommandHistory` 再调用 `execute`。怎么改树、怎么改坐标留在 `Document` 和 `Shape` 里。`MoveCommand` 只调用 `document.move`，并把返回的逆操作留在自己身上；`undo` 只执行这份逆操作。
 
-`redo` 会再次调用 `execute()`，不是把上次的文本再打印一遍。编辑命令入 undo 栈并清空 redo 栈；`init` / `read` 清空两栈并锁定；`save` 和修改画布尺寸只锁定、保留 undo 栈；`tree` / `show` / `help` 不碰栈。锁定期间撤销和重做都是 `error: undo not allowed after io command`。下一次成功的编辑才开锁。失败的命令不入栈、不改锁。
-
-用户不能 `ungroup` 顶层容器。撤销 `group` 走的是当时记下的逆操作，不受这条禁令限制，否则「把两个顶层图形收成一组」无法撤销。
-
-#### 组合 Composite
-
-`Shape` 是组件，`RectShape` 等是叶子，`GroupShape` 是组合。`move` / `scale` 在组上递归到每个子孙，每个叶子只处理一次。`SvgRoot` 是容器但不是图形：没有 id，不能被移动或删除。画布尺寸只走 `canvas` / `init` / `read`。
-
-`front` 把图形放到同级末尾，`back` 放到开头。SVG 里后出现的兄弟画在上层。
-
-#### 适配器 Adapter
-
-| | XML | 文件系统 |
-|---|---|---|
-| 目标接口 | `SvgTextCodec` | `TextFiles` |
-| 被适配者 | `@xmldom/xmldom` | `node:fs` |
-| 适配器 | `XmlSvgCodec` | `NodeTextFiles` |
-
-写出不交给 XML 库。`SvgSerializer` 按固定顺序生成声明、根元素和属性。解析结果是 `RawElement`，库的类型不出 `io`。缺 id 时按「标签名 + 序号」补上并警告。`transform` 等未知属性警告后丢弃，不烘焙进几何，避免和直接改坐标的 `move` / `scale` 叠成两次变换。
-
-#### 工厂方法 Factory Method
-
-`ShapeProvider.create` / `read` 由具体提供者实现。`CreateCommand` 和 `SvgLoader` 只向 `ShapeRegistry` 要一次类型，自己不区分矩形和圆。`match` 按注册逆序取第一个匹配，以后的插件后登记即可盖住内置的 `g`。
-
-#### 策略 Strategy
-
-`HistoryPolicy` 有四种对象：`edit`、`reset`、`lock`、`none`。`CommandHistory` 在命令成功后调用 `policy.apply`，不再自己写一串字符串分支。新增一种历史效果时，加一个策略对象，历史栈的撤销和重做循环不用改。`canvas` 不带参数时用 `none`，带尺寸时用 `lock`。
-
-#### 模板方法 Template Method
-
-`PaintedShape` 规定属性操作的步骤：先看是不是几何名，再看是不是文字内容，再看是不是 `fill` / `stroke` / `stroke-width`，最后才报未知属性。快照也是同一套顺序。矩形、圆、椭圆、线和文字只实现自己的字段怎么读、怎么写、怎么拍下来。外观逻辑只写在这一处。
-
-#### 迭代器 Iterator
-
-`ShapeIterator` 按文档前序逐个取出图形。`group` 要按这个顺序收编成员，而不是按参数书写顺序。调用方不接触容器内部数组。
-
-#### 备忘录 Memento
-
-`ShapeMemento` 保存一次编辑前的状态。叶子记下自己的数和外观，组记下每个子孙的备忘录。命令只调用 `restore()`。`scale` 的撤销恢复这份备忘录，不乘 `1/factor`，避免浮点走不回去。不做整份文档的快照。
-
-#### 外观 Facade
-
-`CliController` 是一行文本进入系统的唯一入口。分词、按名找到命令、交给历史栈、把 `EditorError` 收成一行 `error:`，都在这里结束。`Repl` 只负责提示符和打印。
-
-#### 本阶段仍然不用的模式
-
-| 模式 | 原因 |
+| 角色 | 类 |
 |---|---|
-| 访问者 | 后续要加的是图形类型。访问者会让每个新类型改遍所有操作。遍历放在组合和迭代器上，节点差异用多态 |
-| 观察者 | 消费者只有 REPL，而且命令同步返回文本。第二个界面出现之后，再由文档通知视图 |
-| 装饰器 | `fill` 和 `stroke` 是属性，不是包在对象外面的一层职责 |
-| 单例 | 工作区、注册表、历史栈都由 `Main` 创建。测试可以再造一套 |
+| 客户端 | `Main`、`CommandBindings` |
+| 调用者 | `CommandHistory` |
+| 命令 | `Command`；能撤销的再实现 `UndoableCommand` |
+| 具体命令 | `MoveCommand` 等，一类一文件 |
+| 接收者 | `Document` 管结构，`Shape` 管几何 |
+
+`redo` 会再次调用 `execute()`，不是把上次的文本再打印一遍。失败的命令在改状态之前抛错，不会入栈。`undo` 和 `redo` 是历史栈上的方法，不会把自己再压进栈。
+
+| 成功之后 | 命令 | 栈 |
+|---|---|---|
+| 入 undo 栈，清空 redo 栈，解除锁定 | `create` `delete` `move` `scale` `set` `group` `ungroup` `addto` `front` `back` | `HistoryPolicy.edit` |
+| 两栈清空并锁定 | `init` `read` | `HistoryPolicy.reset` |
+| 保留 undo 栈，清空 redo 栈，锁定 | `save`，以及带尺寸的 `canvas` | `HistoryPolicy.lock` |
+| 不动 | `tree` `show` `help`，以及不带参数的 `canvas` | `HistoryPolicy.none` |
+
+锁定期间撤销和重做都报 `error: undo not allowed after io command`。下一次成功的编辑才开锁。因此保存之后不能立刻撤销，但保存之后再 `move`，可以撤销这次移动，并继续撤销保存之前的编辑。`init` / `read` 已经把旧命令清掉，那些命令不会作用到新文档上。
+
+用户不能 `ungroup` 顶层容器。撤销 `group` 不调用 `ungroup`，而是执行分组时记下的逆操作。否则把两个顶层图形收成一组之后无法撤销。
+
+**组合。** `GroupShape` 与叶子都是 `Shape`。`move` 和 `scale` 在组上递归到每个子孙，每个叶子只处理一次。画布根不是图形，不能被移动或删除。
+
+**适配器。** `XmlSvgCodec` 把 XML 库收成 `RawElement`，`NodeTextFiles` 把 `node:fs` 收成 `TextFiles`。领域代码不出现这两种库的类型。
+
+**工厂方法。** 每种图形一个 `ShapeProvider`。`CreateCommand` 和读文件只向 `ShapeRegistry` 要类型，不写 `rect` / `circle` 分支。
+
+**策略。** `HistoryPolicy` 的 `edit`、`reset`、`lock`、`none` 决定成功后栈怎么变。`canvas` 不带参数用 `none`，带尺寸用 `lock`。
+
+**模板方法。** `PaintedShape` 固定属性校验、赋值和快照的顺序。矩形、圆、椭圆、线和文字只提供自己的字段。
+
+**迭代器。** `ShapeIterator` 按文档前序取出图形。`group` 用这个顺序收编成员，而不是参数的书写顺序。
+
+**备忘录。** `ShapeMemento` 记下这次会改到的子树。撤销调用 `restore()`，缩放不再乘 `1/factor`。
+
+**外观。** `CliController` 接收一行文本，完成分词、分派和错误收集。`Repl` 只负责提示符和打印。
+
+访问者、观察者、装饰器和单例这次没有用：后面要加的是图形类型，现在又只有一个同步的命令行入口，外观属性也不是包在对象外面的一层。
 
 ### 3. 依赖方向规则
 
@@ -211,21 +199,18 @@ cli → 只依赖自己的接口和词法
 
 ## 过程记录
 
-实现分两段。先写架构方案，再写代码。第二段才把策略、模板方法、迭代器和备忘录补进已经重复的地方。
+和 AI 协作时，我把它给出的方案和代码都当成需要核对的草稿。下面每条都是我在文档或生成结果里看到的问题、用什么确认，以及最后改成了什么。
 
-1. **命令里不能写业务。** 初稿容易把「能不能解散」「成员按什么顺序收编」写进 `GroupCommand`。这样撤销顶层分组会误走用户禁令。纠正之后，结构不变量在 `Document`，几何在 `Shape`，命令只保存 `EditResult`。撤销 `group` 用当时的逆操作，顶层禁令只约束用户输入的 `ungroup`。
-
-2. **不要为了用访问者去遍历 SVG。** 语法树分析适合访问者，因为节点类型稳定、分析在增加。这个编辑器后面要加的是图形类型，操作集合相对固定。若用访问者，每加一种图形就要改序列化、树形显示和属性设置。现在这些都是图形自己的方法，`ShapeIterator` 只负责前序，不负责「看见矩形就做什么」。
-
-3. **缩放的撤销不能靠乘回去。** 直接乘 `1/factor` 会留下浮点误差，树形显示对不上。命令持有 `ShapeMemento`，撤销时整段几何一起恢复。
-
-4. **`transform` 不能读进来又只处理一部分。** 背景材料里的 SVG 用 `translate` 移动整组。本程序的 `move` 是直接改坐标。若装载时只认 `translate`、不认 `matrix`，图会看起来读对了，坐标却是错的。未知属性现在警告并丢弃。
-
-5. **历史效果从字符串分支收成策略。** 第一版 `CommandHistory` 用 `"edit"` / `"reset"` / `"lock"` / `"none"` 四个分支决定入栈。四种行为已经稳定出现（查询、编辑、换文档、保存），再加一种就要改调用者。`HistoryPolicy` 把这四种效果变成对象，`canvas` 按有没有尺寸选择 `none` 或 `lock`。
-
-6. **四种数值图形的属性代码重复。** 矩形、圆、椭圆、线各自复制了一遍「几何名、外观、未知属性、拍快照」。`PaintedShape` 把这个顺序固定成模板，子类只留下字段。文字的 `text` 属性走模板上的扩展点，不另写一套外观逻辑。
-
-7. **分组顺序用迭代器，不用在 `Document` 里再写一遍递归。** 规格要求保持成员在文档中的相对顺序。`ShapeIterator` 的前序就是这个顺序。`group` 用它筛选成员，插入位置取文档顺序中的第一个成员。
+1. **撤销顶层分组走了用户命令。** AI 写的 `GroupCommand.undo` 直接调用 `document.ungroup`。我用会话核对：`init` 之后 `create rect a`、`create rect b`、`group g a b`，这个新组是画布的直接子节点。再 `undo`，输出是 `error: cannot ungroup top-level container: g`，图形并没有还原。规格只禁止用户解散顶层容器，并没有禁止撤销这次 `group`。纠正：`Document.group` 在修改前记下各成员原来的父容器和顺序，命令只保存这份逆操作。顶层禁令只留在用户输入的 `ungroup` 上。
+2. **用访问者遍历 SVG。** 架构草稿建议给序列化、`tree`、`show` 各写一个 Visitor，理由是课程刚用语法树讲过这个模式。我对照的是后面的变化方向：`box` 要作为新类型加进来，操作却还是原来那几种。访问者每加一种图形就要改全部 `visit`。确认方式是在草稿里数改动面：加 `box` 至少要动写文件、树和属性三处。现在遍历只用 `ShapeIterator` 做前序，节点差异放在图形自己的方法上。
+3. **撤销缩放靠再乘一次倒数。** AI 的 `ScaleCommand` 在 `undo` 里执行 `scale(1/factor)`。我用 `scale c1 0.1` 连续做三次再逐次撤销，`show` 里的半径变成 `10.000002`，和创建时的 `10` 对不上。纠正：执行前由图形交出 `ShapeMemento`，撤销只调用 `restore()`。组的备忘录包含每个子孙，不会把整份文档复制一份。
+4. **读入时解析** `transform`**。** 生成的 `SvgLoader` 只识别 `translate(dx,dy)`，把它加进子图形坐标。规格背景里的 SVG 还有 `scale`，样例文件里两种会嵌套。我用只含 `translate(60,40)` 的小组试读，坐标被改了；若之后再 `move`，同一次位移会作用第二次。只支持一种函数还会让 `matrix(...)` 被静默丢掉。纠正：不认识的属性（含 `transform`）警告后丢弃，几何保持文件里的原数。
+5. **树的空格照着讲义样例硬对齐。** AI 把 `tree` 的 `类型#id` 垫到固定列宽，想和讲义里的空格一致。我把讲义两段 `tree` 放在一起数空格：`rect#bg` 和 `circle#c1` 后面的空格数并不相同，后一段流程图里的 `line#arrow1` 也和前一段不一样。列宽对不齐测试，也不是规格正文里的规则。纠正：`类型#id` 与几何之间固定两个空格，测试只断言前缀、id 和属性。
+6. **查询画布尺寸也锁住撤销。** 第一版把整个 `canvas` 命令都标成 `lock`。我按规格 4.3 核对：锁住撤销的是「修改尺寸」，无参数的 `canvas` 只显示大小。会话是 `move` 之后执行 `canvas`（不带参数）再 `undo`，结果误报 `undo not allowed after io command`，上一次移动无法撤销。纠正：不带尺寸时策略是 `HistoryPolicy.none`，带尺寸时才是 `lock`。
+7. **分组顺序跟参数书写顺序走。** AI 按 `group g c a` 的参数顺序把 `c` 放在 `a` 前面。文档里原来的顺序是 a、b、c。我看 `tree`，收编后 c 盖住了 a，和「保持相对顺序」相反。纠正：`ShapeIterator` 按前序取出图形，`group` 只按这个顺序挑成员，新组插在文档顺序中第一个成员原来的位置。
+8. **外层组缩放乘了两次。** 生成的 `GroupShape.scale` 先把自己的子节点缩放一遍，子组的 `scale` 里又对叶子做了一次。构造 `outer > inner > rect(x=10)` 后执行 `scale outer 2`，`show` 里 x 变成 40 而不是 20。纠正：组只把 `scale` 转给直接子节点，叶子各自乘一次。这条留在测试里。
+9. **工作区做成单例，省掉构造参数。** AI 为了少写依赖，加了 `Workspace.getInstance()`，命令在内部自己取。我同时跑两个测试：一个 `init 800 600`，一个 `init 100 80`，第二个测试读到了第一个的画布尺寸。单例把两次会话接在了一起。纠正：`Main` 创建工作区并传进命令；测试各自 `new` 一套，并换上 `MemoryTextFiles`。
+10. **行尾** `#ffffff` **被当成注释。** 词法草稿把第一个 `#` 之后都删掉。`create rect bg 0 0 800 600 #ffffff` 在分词后丢掉了填充色，矩形变成默认黑，`tree` 里没有 `fill=#ffffff`。规格里的 `#` 注释写的是「开头」。纠正：只有去掉空白后整行以 `#` 开头才忽略，参数中的颜色保留。
 
 ---
 
@@ -287,12 +272,65 @@ cli → 只依赖自己的接口和词法
 
 房间是容器。脚本里先把咖啡角下移 24，再 `undo`，用来在终端里看到 `g#cafe moved by (0,24)` 和 `moved back`。最终图形停在设计位置。
 
-截两张图即可：
+### Code
 
-1. **终端。** `npm run cli`，把 `examples/library.commands` 的内容逐行贴进去。对照 `examples/library-session.txt`。重点留住 `tree`、`show desk` 和 `saved to examples/library.svg (27 elements)`。
-2. **浏览器。** 打开 `examples/library.svg`（或在 macOS 上执行 `open examples/library.svg`）。应能看到米色底、三个色块房间、中庭椭圆、连线和图例。
+```
+init 1000 640
+create rect paper 0 0 1000 640 #f6f1e7
+create text title 48 64 "城市图书馆导览"
+set title fill #243044
+create text subtitle 48 98 "一楼平面 · 读者动线"
 
-重新生成这两个文件：
+create g hall
+create rect hall-body 70 150 280 190 #4a90d9 in hall
+create text hall-label 150 250 "阅览大厅" in hall
+set hall-label fill #ffffff
+create circle desk 210 200 18 #ffffff in hall
+
+create g stacks
+create rect stacks-body 450 150 240 190 #f5a623 in stacks
+create text stacks-label 510 250 "开架书库" in stacks
+set stacks-label fill #ffffff
+
+create g cafe
+create rect cafe-body 760 150 180 190 #e07a5f in cafe
+create text cafe-label 810 250 "咖啡角" in cafe
+set cafe-label fill #ffffff
+
+create ellipse garden 210 470 100 62 #8fbc8f
+create text garden-label 178 476 "中庭"
+set garden-label fill #1f3d2a
+
+create line to-stacks 350 245 450 245 #334155
+set to-stacks stroke-width 3
+create line to-cafe 690 245 760 245 #334155
+set to-cafe stroke-width 3
+create line to-garden 210 340 210 408 #334155
+set to-garden stroke-width 3
+
+create g legend
+create rect key-hall 760 400 26 26 #4a90d9 in legend
+create text key-hall-name 798 420 "阅览" in legend
+create rect key-stacks 760 446 26 26 #f5a623 in legend
+create text key-stacks-name 798 466 "书库" in legend
+create rect key-cafe 760 492 26 26 #e07a5f in legend
+create text key-cafe-name 798 512 "餐饮" in legend
+create text legend-title 760 384 "图例"
+
+create text hint 70 600 "房间是容器：move hall 40 0 会连同标题和服务台一起移动"
+
+move cafe 0 24
+undo
+tree
+show desk
+save examples/library.svg
+```
+
+### Results
+
+![城市图书馆一楼导览](examples/library.svg)
+
+重新生成文件：
 
 ```bash
 npm run demo
